@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Engineering PDF Research Workspace</title>
+  <meta name="description" content="An offline engineering PDF research workspace that combines PDF reading, annotation, OCR, citation management, literature review organisation, formula management, technical checklist building, document comparison and engineering reference tools in one local-first application." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body data-theme="dark">
+
+  <div class="workspace-root">
+
+    <!-- ===================================================================
+         NAVIGATION RAIL — switches between the seven views
+         ================================================================ -->
+    <nav class="nav-rail" aria-label="Sections">
+      <div class="nav-brand" title="Engineering PDF Research Workspace"><span class="nav-logo" data-icon="book"></span></div>
+
+      <button class="nav-item active" data-view="reader" title="PDF Reader"><span class="ni-ico" data-icon="fileText"></span><span class="ni-label">Reader</span></button>
+      <button class="nav-item" data-view="notes" title="Research Notes"><span class="ni-ico" data-icon="note"></span><span class="ni-label">Notes</span></button>
+      <button class="nav-item" data-view="literature" title="Literature Database"><span class="ni-ico" data-icon="book"></span><span class="ni-label">Library</span></button>
+      <button class="nav-item" data-view="citations" title="Citations"><span class="ni-ico" data-icon="quote"></span><span class="ni-label">Cite</span></button>
+      <button class="nav-item" data-view="figures" title="Figures &amp; Tables"><span class="ni-ico" data-icon="image"></span><span class="ni-label">Figures</span></button>
+      <button class="nav-item" data-view="projects" title="Projects"><span class="ni-ico" data-icon="folder"></span><span class="ni-label">Projects</span></button>
+      <button class="nav-item" data-view="engineering" title="Engineering Workspace"><span class="ni-ico" data-icon="wrench"></span><span class="ni-label">Engineering</span></button>
+      <button class="nav-item" data-view="search" title="Global Search"><span class="ni-ico" data-icon="search"></span><span class="ni-label">Search</span></button>
+
+      <div class="nav-spacer"></div>
+
+      <div class="nav-project" title="Active project filters every section">
+        <label for="nav-project-select">Project</label>
+        <select id="nav-project-select"></select>
+      </div>
+      <button class="nav-item nav-theme" id="btn-theme" title="Toggle theme"><span data-icon="moon"></span></button>
+    </nav>
+
+    <!-- ===================================================================
+         VIEW STACK
+         ================================================================ -->
+    <div class="view-stack">
+
+      <!-- ===============================================================
+           VIEW: PDF READER  (Phase 1 layout lives here)
+           ============================================================ -->
+      <section id="view-reader" class="view active">
+        <div class="app-shell search-hidden">
+
+          <!-- TOOLBAR -->
+          <div class="toolbar">
+            <div class="tb-group">
+              <button id="open-file" class="btn has-label primary" title="Open a PDF"><span data-icon="upload"></span><span>Open</span></button>
+              <input id="file-input" type="file" accept="application/pdf,.pdf" multiple hidden />
+            </div>
+
+            <div class="tb-sep"></div>
+
+            <div class="tb-group page-nav">
+              <button id="btn-prev" class="btn" title="Previous page" disabled><span data-icon="chevronLeft"></span></button>
+              <input id="page-input" class="page-input" type="number" min="1" value="1" disabled />
+              <span id="page-total" class="page-total">/ 0</span>
+              <button id="btn-next" class="btn" title="Next page" disabled><span data-icon="chevronRight"></span></button>
+            </div>
+
+            <div class="tb-sep"></div>
+
+            <div class="tb-group">
+              <button id="btn-zoom-out" class="btn" title="Zoom out" disabled><span data-icon="zoomOut"></span></button>
+              <span id="zoom-level" class="zoom-level" title="Zoom">100%</span>
+              <button id="btn-zoom-in" class="btn" title="Zoom in" disabled><span data-icon="zoomIn"></span></button>
+              <button id="btn-fit-width" class="btn toggle" title="Fit width" disabled><span data-icon="fitWidth"></span></button>
+              <button id="btn-fit-page" class="btn toggle" title="Fit page" disabled><span data-icon="fitPage"></span></button>
+              <button id="btn-rotate-ccw" class="btn" title="Rotate left" disabled><span data-icon="rotateCcw"></span></button>
+              <button id="btn-rotate-cw" class="btn" title="Rotate right" disabled><span data-icon="rotateCw"></span></button>
+              <button id="btn-fullscreen" class="btn" title="Fullscreen" disabled><span data-icon="maximize"></span></button>
+            </div>
+
+            <div class="tb-sep"></div>
+
+            <!-- Annotation tools -->
+            <div class="tb-group" id="tool-group">
+              <button class="btn tool tool-btn" data-tool="select" title="Select / move" disabled><span data-icon="cursor"></span></button>
+              <button class="btn tool tool-btn" data-tool="highlight" title="Highlight" disabled><span data-icon="highlighter"></span></button>
+              <button class="btn tool tool-btn" data-tool="underline" title="Underline" disabled><span data-icon="underline"></span></button>
+              <button class="btn tool tool-btn" data-tool="strikethrough" title="Strikethrough" disabled><span data-icon="strike"></span></button>
+              <button class="btn tool tool-btn" data-tool="sticky" title="Sticky note" disabled><span data-icon="note"></span></button>
+              <button class="btn tool tool-btn" data-tool="freetext" title="Text box" disabled><span data-icon="text"></span></button>
+              <button class="btn tool tool-btn" data-tool="rectangle" title="Rectangle" disabled><span data-icon="square"></span></button>
+              <button class="btn tool tool-btn" data-tool="circle" title="Circle / ellipse" disabled><span data-icon="circle"></span></button>
+              <button class="btn tool tool-btn" data-tool="arrow" title="Arrow" disabled><span data-icon="arrow"></span></button>
+              <button class="btn tool tool-btn" data-tool="freehand" title="Freehand pen" disabled><span data-icon="pen"></span></button>
+              <button id="btn-clear-page" class="btn" title="Clear annotations on this page" disabled><span data-icon="eraser"></span></button>
+            </div>
+
+            <div class="tb-sep"></div>
+
+            <!-- Colour -->
+            <div class="tb-group color-control">
+              <div id="swatches" class="color-swatches">
+                <button class="swatch sel" data-color="#ffb020" style="background:#ffb020" title="Amber"></button>
+                <button class="swatch" data-color="#5b9dff" style="background:#5b9dff" title="Blue"></button>
+                <button class="swatch" data-color="#38cf90" style="background:#38cf90" title="Green"></button>
+                <button class="swatch" data-color="#ff5f5f" style="background:#ff5f5f" title="Red"></button>
+                <button class="swatch" data-color="#c879ff" style="background:#c879ff" title="Purple"></button>
+                <button class="swatch" data-color="#1a1f29" style="background:#1a1f29" title="Ink"></button>
+              </div>
+              <input id="color-picker" class="color-picker" type="color" value="#ffb020" title="Custom colour" />
+            </div>
+
+            <div class="tb-sep"></div>
+
+            <!-- Research tools -->
+            <div class="tb-group">
+              <button id="ocr-open" class="btn has-label" title="OCR — recognise text in scanned pages" disabled><span data-icon="scan"></span><span>OCR</span></button>
+              <button id="capture-toggle" class="btn has-label toggle" title="Capture a figure or table" disabled><span data-icon="crop"></span><span>Capture</span></button>
+              <button id="btn-export-pdf" class="btn has-label" title="Export a new PDF with annotations burned in" disabled><span data-icon="download"></span><span>Export PDF</span></button>
+              <button id="btn-pages" class="btn has-label" title="Manage pages — reorder, delete, rotate, merge" disabled><span data-icon="layers"></span><span>Pages</span></button>
+            </div>
+
+            <div class="tb-spacer"></div>
+
+            <div class="tb-group">
+              <button id="btn-search" class="btn" title="Find in document (Ctrl+F)" disabled><span data-icon="search"></span></button>
+              <button id="btn-save" class="btn" title="Save session (Ctrl+S)"><span data-icon="save"></span></button>
+              <button id="btn-toggle-left" class="btn" title="Toggle left panel"><span data-icon="panelLeft"></span></button>
+              <button id="btn-toggle-right" class="btn" title="Toggle right panel"><span data-icon="panelRight"></span></button>
+              <div class="menu-wrap">
+                <button id="btn-menu" class="btn" title="More actions"><span data-icon="menu"></span></button>
+                <div id="menu" class="menu" role="menu">
+                  <div class="menu-label">Export</div>
+                  <button class="menu-item" data-act="export-pdf" role="menuitem"><span data-icon="download"></span> Export edited PDF…</button>
+                  <button class="menu-item" data-act="manage-pages" role="menuitem"><span data-icon="layers"></span> Manage pages (reorder/merge)…</button>
+                  <button class="menu-item" data-act="export-notes-txt" role="menuitem"><span data-icon="fileText"></span> Export notes (TXT)</button>
+                  <button class="menu-item" data-act="export-notes-json" role="menuitem"><span data-icon="fileText"></span> Export notes (JSON)</button>
+                  <button class="menu-item" data-act="export-anno-json" role="menuitem"><span data-icon="download"></span> Export annotations (JSON)</button>
+                  <div class="menu-divider"></div>
+                  <div class="menu-label">Data</div>
+                  <button class="menu-item" data-act="backup" role="menuitem"><span data-icon="download"></span> Back up everything (JSON)</button>
+                  <button class="menu-item" data-act="restore" role="menuitem"><span data-icon="upload"></span> Restore from backup…</button>
+                  <div class="menu-divider"></div>
+                  <button class="menu-item danger" data-act="close-doc" role="menuitem"><span data-icon="x"></span> Close document</button>
+                </div>
+              </div>
+            </div>
+          </div><!-- /toolbar -->
+
+          <!-- FIND-IN-PDF BAR -->
+          <div id="search-bar" class="search-bar">
+            <div class="search-field">
+              <span data-icon="search"></span>
+              <input id="search-input" type="text" placeholder="Find in document…" />
+            </div>
+            <span id="search-count" class="search-count"></span>
+            <button id="search-prev" class="btn" title="Previous match"><span data-icon="chevronLeft"></span></button>
+            <button id="search-next" class="btn" title="Next match"><span data-icon="chevronRight"></span></button>
+            <label class="search-opt" title="Match case"><input id="search-case" type="checkbox" /> Aa</label>
+            <div class="tb-spacer"></div>
+            <button id="search-close" class="btn" title="Close find"><span data-icon="x"></span></button>
+          </div>
+
+          <!-- LEFT SIDEBAR -->
+          <aside class="sidebar left-sidebar">
+            <div class="tabs">
+              <button id="tab-docs" class="tab active"><span data-icon="file"></span> Documents</button>
+              <button id="tab-pages" class="tab"><span data-icon="grid"></span> Pages</button>
+            </div>
+            <div id="pane-docs" class="pane active">
+              <div class="pane-head">
+                <h3>Library</h3>
+                <button id="docs-clear" class="link-btn danger" title="Delete everything"><span data-icon="trash"></span> Clear</button>
+              </div>
+              <div class="pane-scroll"><div id="docs-list"></div></div>
+            </div>
+            <div id="pane-pages" class="pane">
+              <div class="pane-scroll"><div id="thumbs-list" class="thumbs"></div></div>
+            </div>
+          </aside>
+
+          <!-- VIEWER -->
+          <div id="viewer-wrap" class="viewer-wrap">
+            <div id="viewer" class="viewer empty">
+              <div id="page-container" class="page-container hidden">
+                <canvas id="pdf-canvas" class="pdf-canvas"></canvas>
+                <div id="text-layer" class="text-layer"></div>
+                <canvas id="anno-canvas" class="anno-canvas"></canvas>
+                <div id="anno-dom" class="anno-dom"></div>
+                <div id="page-loader" class="page-loader"><div class="spinner"></div></div>
+              </div>
+            </div>
+
+            <div id="drop-overlay" class="drop-overlay">
+              <div class="welcome">
+                <div class="w-icon" data-icon="upload"></div>
+                <h2>Engineering PDF Research Workspace</h2>
+                <p>Drop a PDF here, or click Open. Everything stays on your device — no uploads, no accounts.</p>
+                <button class="btn has-label primary" id="welcome-open"><span data-icon="upload"></span><span>Open a PDF</span></button>
+                <div class="kbd-hints">
+                  <kbd>Ctrl</kbd><kbd>F</kbd> find &nbsp; <kbd>+</kbd><kbd>−</kbd> zoom &nbsp; <kbd>←</kbd><kbd>→</kbd> pages &nbsp; <kbd>Esc</kbd> close
+                </div>
+              </div>
+            </div>
+
+            <div id="page-indicator" class="page-indicator"></div>
+            <div class="fs-exit-hint">Press <kbd>Esc</kbd> to exit fullscreen</div>
+          </div>
+
+          <!-- RIGHT SIDEBAR -->
+          <aside class="sidebar right-sidebar">
+            <div class="tabs">
+              <button id="tab-notes" class="tab active"><span data-icon="note"></span> Notes <span id="notes-count-pill" class="count-pill"></span></button>
+              <button id="tab-anno" class="tab"><span data-icon="layers"></span> Marks <span id="anno-count-pill" class="count-pill"></span></button>
+            </div>
+            <div id="pane-notes" class="pane active">
+              <div class="pane-head">
+                <h3>Research notes</h3>
+                <button id="notes-add" class="link-btn" title="Add a note for this page"><span data-icon="plus"></span> Add</button>
+              </div>
+              <div class="notes-filter">
+                <div class="field"><span data-icon="search"></span><input id="notes-filter" type="text" placeholder="Filter notes on this PDF…" /></div>
+              </div>
+              <div class="pane-scroll"><div id="notes-list"></div></div>
+            </div>
+            <div id="pane-anno" class="pane">
+              <div class="pane-head"><h3>Annotations</h3></div>
+              <div class="pane-scroll"><div id="anno-list"></div></div>
+            </div>
+          </aside>
+
+        </div><!-- /app-shell -->
+      </section><!-- /view-reader -->
+
+      <!-- ===============================================================
+           VIEW: RESEARCH NOTES
+           ============================================================ -->
+      <section id="view-notes" class="view">
+        <header class="view-header">
+          <div class="vh-title"><span data-icon="note"></span><h1>Research Notes</h1><span id="research-count" class="vh-count"></span></div>
+          <div class="vh-filters">
+            <div class="search-field sm"><span data-icon="search"></span><input id="research-search" type="text" placeholder="Search all notes…" /></div>
+            <select id="research-cat" title="Filter by category"></select>
+            <select id="research-imp" title="Filter by importance"></select>
+            <select id="research-project" title="Filter by project"></select>
+          </div>
+        </header>
+        <div class="view-body"><div id="research-list" class="card-grid"></div></div>
+      </section>
+
+      <!-- ===============================================================
+           VIEW: LITERATURE DATABASE
+           ============================================================ -->
+      <section id="view-literature" class="view">
+        <header class="view-header">
+          <div class="vh-title"><span data-icon="book"></span><h1>Literature Database</h1><span id="lit-count" class="vh-count"></span></div>
+          <div class="vh-filters">
+            <div class="search-field sm"><span data-icon="search"></span><input id="lit-search" type="text" placeholder="Search entries…" /></div>
+            <input id="lit-tag" class="filter-input" type="text" placeholder="Tag…" title="Filter by tag" />
+            <select id="lit-year" title="Filter by year"></select>
+            <select id="lit-project" title="Filter by project"></select>
+            <button id="lit-add" class="btn has-label primary"><span data-icon="plus"></span><span>Add entry</span></button>
+            <button id="lit-export-csv" class="btn has-label"><span data-icon="download"></span><span>CSV</span></button>
+            <button id="lit-export-json" class="btn has-label"><span data-icon="download"></span><span>JSON</span></button>
+          </div>
+        </header>
+        <div class="view-body"><div id="lit-list" class="card-grid"></div></div>
+      </section>
+
+      <!-- ===============================================================
+           VIEW: CITATIONS
+           ============================================================ -->
+      <section id="view-citations" class="view">
+        <header class="view-header">
+          <div class="vh-title"><span data-icon="quote"></span><h1>Citations</h1><span id="cite-count" class="vh-count"></span></div>
+          <div class="vh-filters">
+            <select id="cite-project" title="Filter by project"></select>
+            <button id="cite-export-txt" class="btn has-label"><span data-icon="download"></span><span>Export TXT</span></button>
+          </div>
+        </header>
+        <div class="view-body cite-layout">
+          <div class="cite-form" id="cite-form">
+            <h2 class="panel-title">Reference details</h2>
+            <div class="form-grid">
+              <label class="fld span2"><span>Author(s)</span><input id="cite-authors" type="text" placeholder="Smith, J.; Doe, A. B." /></label>
+              <label class="fld"><span>Year</span><input id="cite-year" type="text" placeholder="2024" /></label>
+              <label class="fld"><span>Preferred style</span><select id="cite-style"><option value="apa">APA 7</option><option value="ieee">IEEE</option></select></label>
+              <label class="fld span2"><span>Title</span><input id="cite-title" type="text" placeholder="Article or paper title" /></label>
+              <label class="fld span2"><span>Journal / Conference</span><input id="cite-journal" type="text" placeholder="e.g. Chemical Engineering Science" /></label>
+              <label class="fld"><span>Volume</span><input id="cite-volume" type="text" /></label>
+              <label class="fld"><span>Issue</span><input id="cite-issue" type="text" /></label>
+              <label class="fld"><span>Pages</span><input id="cite-pages" type="text" placeholder="120–135" /></label>
+              <label class="fld span2"><span>DOI / URL</span><input id="cite-doi" type="text" placeholder="10.xxxx/xxxxx or https://…" /></label>
+            </div>
+            <div class="row">
+              <button id="cite-clear" class="btn has-label">Clear</button>
+              <button id="cite-save" class="btn has-label primary">Save citation</button>
+            </div>
+
+            <div class="cite-preview">
+              <div class="cite-ref">
+                <div class="cite-ref-head"><span class="cite-style-tag">APA 7</span>
+                  <button id="cite-copy-apa" class="cite-copy"><span data-icon="file"></span> Copy</button></div>
+                <p id="cite-apa"></p>
+              </div>
+              <div class="cite-ref">
+                <div class="cite-ref-head"><span class="cite-style-tag">IEEE</span>
+                  <button id="cite-copy-ieee" class="cite-copy"><span data-icon="file"></span> Copy</button></div>
+                <p id="cite-ieee"></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="cite-saved">
+            <h2 class="panel-title">Saved citations</h2>
+            <div id="cite-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===============================================================
+           VIEW: FIGURES & TABLES
+           ============================================================ -->
+      <section id="view-figures" class="view">
+        <header class="view-header">
+          <div class="vh-title"><span data-icon="image"></span><h1>Figures &amp; Tables</h1><span id="fig-count" class="vh-count"></span></div>
+          <div class="vh-filters">
+            <div class="search-field sm"><span data-icon="search"></span><input id="fig-search" type="text" placeholder="Search figures &amp; tables…" /></div>
+            <select id="fig-kind" title="Filter by type">
+              <option value="">All types</option>
+              <option value="figure">Figures</option>
+              <option value="table">Tables</option>
+            </select>
+            <select id="fig-project" title="Filter by project"></select>
+            <button id="fig-add" class="btn has-label"><span data-icon="plus"></span><span>Add</span></button>
+            <button id="fig-export-csv" class="btn has-label"><span data-icon="download"></span><span>CSV</span></button>
+            <button id="fig-export-json" class="btn has-label"><span data-icon="download"></span><span>JSON</span></button>
+          </div>
+        </header>
+        <div class="view-body"><div id="fig-list" class="fig-grid"></div></div>
+      </section>
+
+      <!-- ===============================================================
+           VIEW: PROJECTS
+           ============================================================ -->
+      <section id="view-projects" class="view">
+        <header class="view-header">
+          <div class="vh-title"><span data-icon="folder"></span><h1>Projects</h1></div>
+          <div class="vh-filters">
+            <button id="proj-seed" class="btn has-label"><span data-icon="plus"></span><span>Add examples</span></button>
+            <button id="proj-add" class="btn has-label primary"><span data-icon="plus"></span><span>New project</span></button>
+          </div>
+        </header>
+        <div class="view-body"><div id="proj-list" class="card-grid"></div></div>
+      </section>
+
+      <!-- ===============================================================
+           VIEW: ENGINEERING WORKSPACE (Phase 3)
+           ============================================================ -->
+      <section id="view-engineering" class="view">
+        <header class="view-header">
+          <div class="vh-title"><span data-icon="wrench"></span><h1>Engineering Workspace</h1></div>
+        </header>
+        <div class="view-body eng-body">
+
+          <div class="eng-tabs" role="tablist" aria-label="Engineering tools">
+            <button class="eng-tab active" data-etab="formulas" role="tab"><span data-icon="sigma"></span><span>Formulas</span></button>
+            <button class="eng-tab" data-etab="checklists" role="tab"><span data-icon="checkSquare"></span><span>Checklists</span></button>
+            <button class="eng-tab" data-etab="safety" role="tab"><span data-icon="shield"></span><span>Safety limits</span></button>
+            <button class="eng-tab" data-etab="convert" role="tab"><span data-icon="repeat"></span><span>Converter</span></button>
+            <button class="eng-tab" data-etab="tags" role="tab"><span data-icon="tag"></span><span>Tags</span></button>
+            <button class="eng-tab" data-etab="compare" role="tab"><span data-icon="compare"></span><span>Compare PDFs</span></button>
+            <button class="eng-tab" data-etab="export" role="tab"><span data-icon="download"></span><span>Export Centre</span></button>
+          </div>
+
+          <!-- ── Formula Library ─────────────────────────────────────── -->
+          <section id="eng-panel-formulas" class="eng-panel active">
+            <div class="eng-toolbar">
+              <div class="search-field"><span data-icon="search"></span>
+                <input id="fx-search" type="text" placeholder="Search formulas, equations, variables, tags…" />
+              </div>
+              <select id="fx-cat" aria-label="Filter by category"></select>
+              <select id="fx-project" aria-label="Filter by project"></select>
+              <span id="fx-count" class="eng-count">0 formulas</span>
+              <span class="eng-spacer"></span>
+              <button id="fx-export-txt" class="btn has-label" title="Export formula sheet as TXT"><span data-icon="download"></span><span>TXT</span></button>
+              <button id="fx-export-csv" class="btn has-label" title="Export formula library as CSV"><span data-icon="download"></span><span>CSV</span></button>
+              <button id="fx-export-json" class="btn has-label" title="Export formula library as JSON"><span data-icon="download"></span><span>JSON</span></button>
+              <button id="fx-add" class="btn has-label primary"><span data-icon="plus"></span><span>Add formula</span></button>
+            </div>
+            <div id="fx-list" class="fx-list"></div>
+          </section>
+
+          <!-- ── Technical Checklist Builder ─────────────────────────── -->
+          <section id="eng-panel-checklists" class="eng-panel">
+            <div class="eng-toolbar">
+              <span id="chk-count" class="eng-count">0 checklists</span>
+              <span class="eng-spacer"></span>
+              <button id="chk-from-notes" class="btn has-label"><span data-icon="listChecks"></span><span>New from notes</span></button>
+              <button id="chk-add" class="btn has-label primary"><span data-icon="plus"></span><span>New checklist</span></button>
+            </div>
+            <div class="chk-layout">
+              <div id="chk-list" class="chk-list"></div>
+              <div id="chk-detail" class="chk-detail"></div>
+            </div>
+          </section>
+
+          <!-- ── Safety Limit Reference ──────────────────────────────── -->
+          <section id="eng-panel-safety" class="eng-panel">
+            <div class="eng-toolbar">
+              <div class="search-field"><span data-icon="search"></span>
+                <input id="saf-search" type="text" placeholder="Search substance, limit type, source…" />
+              </div>
+              <select id="saf-type" aria-label="Filter by limit type"></select>
+              <span id="saf-count" class="eng-count">0 entries</span>
+              <span class="eng-spacer"></span>
+              <button id="saf-seed" class="btn has-label" title="Insert widely published example values"><span data-icon="plus"></span><span>Add example values</span></button>
+              <button id="saf-export-csv" class="btn has-label" title="Export as CSV"><span data-icon="download"></span><span>CSV</span></button>
+              <button id="saf-export-json" class="btn has-label" title="Export as JSON"><span data-icon="download"></span><span>JSON</span></button>
+              <button id="saf-add" class="btn has-label primary"><span data-icon="plus"></span><span>Add entry</span></button>
+            </div>
+            <p class="saf-note"><span data-icon="alert"></span> Reference values for convenience — always verify against the current authoritative source for your jurisdiction before use.</p>
+            <div class="saf-table-wrap">
+              <table id="saf-table" class="saf-table">
+                <thead>
+                  <tr><th>Substance</th><th>Limit type</th><th>Value</th><th>Unit</th><th>Source</th><th>Notes</th><th><span class="sr-only">Actions</span></th></tr>
+                </thead>
+                <tbody id="saf-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ── Unit Converter ──────────────────────────────────────── -->
+          <section id="eng-panel-convert" class="eng-panel">
+            <div class="conv-panel">
+              <label class="fld conv-cat-fld"><span>Category</span><select id="conv-cat" aria-label="Conversion category"></select></label>
+              <div id="conv-main">
+                <div class="conv-row">
+                  <input id="conv-value" type="number" step="any" value="1" aria-label="Value to convert" />
+                  <select id="conv-from" aria-label="From unit"></select>
+                  <button id="conv-swap" class="ghost-icon" title="Swap units"><span data-icon="repeat"></span></button>
+                  <select id="conv-to" aria-label="To unit"></select>
+                </div>
+                <div id="conv-result" class="conv-result">Enter a value to convert</div>
+                <div id="conv-grid" class="conv-grid"></div>
+              </div>
+              <div id="conv-conc" style="display:none">
+                <div class="conv-row">
+                  <select id="conc-dir" aria-label="Conversion direction"></select>
+                  <input id="conc-value" type="number" step="any" value="25" aria-label="Concentration value" />
+                </div>
+                <div class="conv-row">
+                  <select id="conc-gas" aria-label="Gas preset"></select>
+                  <input id="conc-molar" type="number" step="any" aria-label="Molar mass in g/mol" title="Molar mass (g/mol)" />
+                </div>
+                <div id="conc-result" class="conv-result">Enter a value to convert</div>
+                <p class="conv-note">ppm ↔ mg/m³ uses C(mg/m³) = ppm × M ÷ 24.45 at 25&nbsp;°C and 101.325&nbsp;kPa (NIOSH convention). %vol ↔ ppm is ×10⁴.</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Engineering Tags ────────────────────────────────────── -->
+          <section id="eng-panel-tags" class="eng-panel">
+            <div id="tags-root"></div>
+          </section>
+
+          <!-- ── PDF Document Comparison ─────────────────────────────── -->
+          <section id="eng-panel-compare" class="eng-panel">
+            <div class="cmp-layout">
+              <div class="cmp-top">
+                <div class="cmp-side">
+                  <div class="cmp-side-head">
+                    <span class="cmp-tag">A</span>
+                    <select id="cmp-select-a" aria-label="Document A"></select>
+                    <div class="cmp-nav">
+                      <button id="cmp-prev-a" class="ghost-icon" title="Previous page (A)" disabled><span data-icon="chevronLeft"></span></button>
+                      <input id="cmp-page-a" type="number" min="1" value="1" aria-label="Page number, document A" disabled />
+                      <span id="cmp-total-a" class="cmp-total">/ —</span>
+                      <button id="cmp-next-a" class="ghost-icon" title="Next page (A)" disabled><span data-icon="chevronRight"></span></button>
+                    </div>
+                  </div>
+                  <div class="cmp-canvas-wrap"><canvas id="cmp-canvas-a" aria-label="Document A preview"></canvas></div>
+                </div>
+                <div class="cmp-side">
+                  <div class="cmp-side-head">
+                    <span class="cmp-tag">B</span>
+                    <select id="cmp-select-b" aria-label="Document B"></select>
+                    <div class="cmp-nav">
+                      <button id="cmp-prev-b" class="ghost-icon" title="Previous page (B)" disabled><span data-icon="chevronLeft"></span></button>
+                      <input id="cmp-page-b" type="number" min="1" value="1" aria-label="Page number, document B" disabled />
+                      <span id="cmp-total-b" class="cmp-total">/ —</span>
+                      <button id="cmp-next-b" class="ghost-icon" title="Next page (B)" disabled><span data-icon="chevronRight"></span></button>
+                    </div>
+                  </div>
+                  <div class="cmp-canvas-wrap"><canvas id="cmp-canvas-b" aria-label="Document B preview"></canvas></div>
+                </div>
+              </div>
+
+              <div class="cmp-diffbar">
+                <button id="cmp-run" class="btn has-label primary"><span data-icon="compare"></span><span>Compare text</span></button>
+                <label class="cmp-check"><input id="cmp-link" type="checkbox" /><span>Linked page navigation</span></label>
+                <label class="cmp-check"><input id="cmp-only-changes" type="checkbox" checked /><span>Only changes</span></label>
+                <span class="eng-spacer"></span>
+                <button id="cmp-save" class="btn has-label" disabled title="Save this report locally"><span data-icon="save"></span><span>Save report</span></button>
+                <button id="cmp-export-txt" class="btn has-label" disabled title="Export report as TXT"><span data-icon="download"></span><span>TXT</span></button>
+                <button id="cmp-export-json" class="btn has-label" disabled title="Export report as JSON"><span data-icon="download"></span><span>JSON</span></button>
+              </div>
+
+              <div id="cmp-progress" class="cmp-progress" style="display:none">
+                <div class="ocr-bar"><span></span></div>
+                <div class="ocr-status">Preparing…</div>
+              </div>
+
+              <div id="cmp-stats" class="cmp-stats"></div>
+              <div id="cmp-diff" class="cmp-diff">
+                <div class="empty-state"><span data-icon="compare"></span><p>Pick a PDF on each side and press “Compare text” to see what was added, removed or changed.</p></div>
+              </div>
+
+              <h3 class="exp-h">Saved comparison reports</h3>
+              <div id="cmp-saved" class="cmp-saved"></div>
+            </div>
+          </section>
+
+          <!-- ── Advanced Export Centre ──────────────────────────────── -->
+          <section id="eng-panel-export" class="eng-panel">
+            <div id="exp-root"></div>
+          </section>
+
+        </div>
+      </section>
+
+      <!-- ===============================================================
+           VIEW: GLOBAL SEARCH
+           ============================================================ -->
+      <section id="view-search" class="view">
+        <header class="view-header">
+          <div class="vh-title"><span data-icon="search"></span><h1>Global Search</h1></div>
+        </header>
+        <div class="view-body gsearch-body">
+          <div class="gsearch-bar">
+            <div class="search-field lg"><span data-icon="search"></span>
+              <input id="gsearch-input" type="text" placeholder="Search across PDFs, OCR text, notes, literature, citations &amp; figures…" />
+            </div>
+          </div>
+          <div id="gsearch-summary" class="gsearch-summary">Type at least two characters to search across all your research.</div>
+          <div id="gsearch-results" class="gsearch-results"></div>
+        </div>
+      </section>
+
+    </div><!-- /view-stack -->
+  </div><!-- /workspace-root -->
+
+  <!-- ===================================================================
+       SCRIPTS — bundled libraries first, then modules in dependency order
+       ================================================================ -->
+  <script src="vendor/pdfjs/pdf.min.js"></script>
+  <script src="vendor/tesseract/tesseract.min.js"></script>
+  <script src="vendor/pdf-lib/pdf-lib.min.js"></script>
+
+  <script src="js/icons.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/tags.js"></script>
+  <script src="js/pdfEdit.js"></script>
+  <script src="js/pdfViewer.js"></script>
+  <script src="js/annotations.js"></script>
+  <script src="js/thumbnails.js"></script>
+  <script src="js/search.js"></script>
+  <script src="js/notes.js"></script>
+  <script src="js/literature.js"></script>
+  <script src="js/citations.js"></script>
+  <script src="js/figures.js"></script>
+  <script src="js/projects.js"></script>
+  <script src="js/ocr.js"></script>
+  <script src="js/globalSearch.js"></script>
+  <script src="js/shortcuts.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/pageManager.js"></script>
+  <script src="js/formulas.js"></script>
+  <script src="js/checklists.js"></script>
+  <script src="js/safety.js"></script>
+  <script src="js/converter.js"></script>
+  <script src="js/diff.js"></script>
+  <script src="js/compare.js"></script>
+  <script src="js/engineering.js"></script>
+  <script src="js/exportCentre.js"></script>
+  <script src="js/palette.js"></script>
+  <script src="js/app.js"></script>
+
+  <!-- Inject inline SVG icons into static [data-icon] elements (runs before boot) -->
+  <script>
+    (function () {
+      if (!window.Icons) return;
+      document.querySelectorAll("[data-icon]").forEach(function (el) {
+        el.insertAdjacentHTML("afterbegin", window.Icons.get(el.getAttribute("data-icon")));
+      });
+      var w = document.getElementById("welcome-open");
+      if (w) w.addEventListener("click", function () { document.getElementById("file-input").click(); });
+    })();
+  </script>
+</body>
+</html>

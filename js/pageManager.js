@@ -11,17 +11,17 @@
    "Export PDF" writes a brand-new PDF (via pdf-lib) reflecting the final order,
    rotations and deletions, then downloads it.
 
-   ── Self-contained ──────────────────────────────────────────────────────────
-   This module injects ALL the CSS it needs (PM_STYLE) with `!important`, so it
-   does not depend on css/styles.css for the grid, cards, or the "Add from
-   Library" picker. That fixes:
-     1. Tabs shrinking when many PDFs are merged in (grid uses a FIXED column
-        width — no 1fr — so tabs keep one size and the panel SCROLLS instead).
-     2. The reorder feeling unnatural (pointer-driven FLIP: the page lifts and
-        follows the cursor, a dashed placeholder shows where it lands, the rest
-        slide aside — like dragging a Safari tab).
-     3. The "Add from Library" filename rendering vertically (own .pm-pick-*
-        classes force horizontal, readable rows).
+   ── Self-contained sizing ───────────────────────────────────────────────────
+   The grid uses FIXED column width AND fixed row height (grid-auto-rows), and
+   each card has an explicit fixed height. The grid is the scroll container with
+   `min-height: 0` (the flexbox rule that actually lets it scroll) plus a hard
+   max-height. Result: no matter how many pages you add (10 or 1000), every tab
+   stays the SAME size and the panel grows a vertical SCROLLBAR — tabs never
+   collapse into thin strips.
+
+   Reordering is a pointer-driven FLIP (lift + follow cursor, dashed placeholder,
+   neighbours slide aside). The "Add from Library" picker uses its own .pm-pick-*
+   classes so filenames always read horizontally.
 
    DROP-IN: replace js/pageManager.js with this file. No other file needs editing.
    Exposed as window.App.PageManager.
@@ -31,50 +31,54 @@
   const App = window.App;
   const pdfjsLib = window.pdfjsLib;
 
-  // One entry per page currently in the working set.
-  // { uid, srcKey, srcIndex, rotation(extra 0/90/180/270), deleted, label }
   let model = [];
-  // srcKey -> { bytes, pdf(PDF.js doc), name }
   const sources = new Map();
   let backdrop = null, gridEl = null, busy = false;
-
-  // Active drag state (null when not dragging).
   let drag = null;
 
   /* --------- Fixed geometry (kept in sync between JS render and CSS) -------- */
-  const CARD_W   = 190;   // fixed card / column width (px)
-  const THUMB_H  = 214;   // fixed thumbnail box height (px) -> uniform rows
-  const THUMB_PAD = 8;    // padding inside the thumb box (px)
+  const CARD_W   = 188;   // fixed card / column width (px)
+  const BAR_H    = 42;    // height of the rotate/label/trash bar under the thumb
+  const THUMB_H  = 208;   // fixed thumbnail box height (px)
+  const CARD_H   = THUMB_H + BAR_H;   // total fixed card height -> fixed rows
+  const THUMB_PAD = 8;
   const DRAG_THRESHOLD = 5;
 
   /* ------------------------------ Injected CSS --------------------------- */
   const PM_STYLE = `
-    /* ---- Modal shell: a wide column that never grows past the viewport. ---- */
+    /* ---- Modal shell: fixed-height column, clips its own overflow. ---- */
     .pm-modal {
       width: min(1480px, calc(100vw - 32px)) !important;
+      height: calc(100vh - 48px) !important;
       max-height: calc(100vh - 48px) !important;
       display: flex !important; flex-direction: column !important; gap: 12px !important;
+      overflow: hidden !important;
     }
+    .pm-head, .pm-hint, .pm-foot { flex: 0 0 auto !important; }
 
-    /* ---- Fixed-width, wrapping, vertically scrolling grid. ----
-       FIXED columns (no 1fr) = tabs never resize; they wrap + scroll instead. */
+    /* ---- The grid IS the scroll container. ----
+       FIXED columns + FIXED row height = tabs can never resize or compress.
+       min-height:0 is the flexbox rule that lets it actually scroll. */
     .pm-grid {
       display: grid !important;
       grid-template-columns: repeat(auto-fill, ${CARD_W}px) !important;
+      grid-auto-rows: ${CARD_H}px !important;
       justify-content: center !important;
       align-content: start !important;
       gap: 16px !important;
       padding: 8px !important;
       flex: 1 1 auto !important;
-      min-height: 140px !important;
+      min-height: 0 !important;            /* <-- lets the flex child scroll */
       overflow-y: auto !important;
       overflow-x: hidden !important;
     }
 
-    /* ---- Each tab: a fixed-size card. ---- */
+    /* ---- Each tab: an explicitly fixed-size card. ---- */
     .pm-card {
       width: ${CARD_W}px !important;
+      height: ${CARD_H}px !important;
       box-sizing: border-box !important;
+      display: flex !important; flex-direction: column !important;
       cursor: grab;
       touch-action: none;
       will-change: transform;
@@ -82,6 +86,7 @@
     .pm-card .pm-thumb {
       height: ${THUMB_H}px !important;
       min-height: ${THUMB_H}px !important;
+      flex: 0 0 ${THUMB_H}px !important;
       padding: ${THUMB_PAD}px !important;
       display: flex !important;
       align-items: center !important;
@@ -95,6 +100,7 @@
       width: auto !important;
       height: auto !important;
     }
+    .pm-card .pm-card-bar { flex: 0 0 auto !important; }
 
     /* ---- The page being dragged: floats under the cursor. ---- */
     .pm-card.pm-lifting {
@@ -104,7 +110,6 @@
       opacity: .98;
       transform: scale(1.05);
     }
-    /* ---- The gap that shows where the page will drop. ---- */
     .pm-card.pm-placeholder {
       background: var(--accent-soft);
       border: 2px dashed var(--accent) !important;
@@ -141,9 +146,12 @@
     }
 
     @media (max-width: 720px) {
-      .pm-grid { grid-template-columns: repeat(auto-fill, 150px) !important; }
-      .pm-card { width: 150px !important; }
-      .pm-card .pm-thumb { height: 176px !important; min-height: 176px !important; }
+      .pm-grid {
+        grid-template-columns: repeat(auto-fill, 150px) !important;
+        grid-auto-rows: ${176 + BAR_H}px !important;
+      }
+      .pm-card { width: 150px !important; height: ${176 + BAR_H}px !important; }
+      .pm-card .pm-thumb { height: 176px !important; min-height: 176px !important; flex: 0 0 176px !important; }
     }
   `;
   function injectStyle() {
@@ -258,8 +266,7 @@
     return el;
   }
 
-  // Render the page so it fits INSIDE the fixed thumbnail box (both axes),
-  // giving uniform rows regardless of portrait/landscape pages.
+  // Render the page so it fits INSIDE the fixed thumbnail box (both axes).
   async function renderThumb(entry, canvas) {
     const src = sources.get(entry.srcKey);
     if (!src || !canvas) return;
@@ -344,7 +351,7 @@
   // Auto-scroll the grid when the dragged page nears the top/bottom edge.
   function autoScroll(e) {
     const r = gridEl.getBoundingClientRect();
-    const margin = 52, speed = 16;
+    const margin = 56, speed = 18;
     if (e.clientY < r.top + margin)         gridEl.scrollTop -= speed;
     else if (e.clientY > r.bottom - margin) gridEl.scrollTop += speed;
   }
@@ -367,8 +374,6 @@
     flipReorder(() => gridEl.insertBefore(drag.placeholder, ref));
   }
 
-  // FLIP: record positions, mutate the DOM, then animate each card from where
-  // it was to where it now is — the smooth "slide aside" effect.
   function flipReorder(mutate) {
     const items = Array.from(gridEl.children).filter((c) => c !== drag.card);
     const first = new Map();
@@ -404,7 +409,6 @@
 
     const ph = drag.placeholder;
     const target = ph.getBoundingClientRect();
-    const cur = el.getBoundingClientRect();
 
     let settled = false;
     const finish = () => {
@@ -492,8 +496,6 @@
     input.click();
   }
 
-  // Multi-select Library picker — self-contained .pm-pick-* classes keep the
-  // filename horizontal and readable (never one-letter-per-line).
   function pickFromList(docs) {
     return new Promise((resolve) => {
       injectStyle();

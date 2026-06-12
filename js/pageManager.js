@@ -11,27 +11,19 @@
    "Export PDF" writes a brand-new PDF (via pdf-lib) reflecting the final order,
    rotations and deletions, then downloads it.
 
-   ── Why this version is self-contained ──────────────────────────────────────
+   ── Self-contained ──────────────────────────────────────────────────────────
    This module injects ALL the CSS it needs (PM_STYLE) with `!important`, so it
-   no longer depends on `css/styles.css` for the grid/card sizing. That fixes two
-   things the old build got wrong:
-
-     1. Tabs shrinking when many PDFs are merged in. The grid now uses a FIXED
-        column width (no `1fr`), so thumbnails keep a constant size and the panel
-        simply WRAPS and SCROLLS vertically instead of squeezing every tab smaller.
-
-     2. The reorder snapping / feeling unnatural. Reordering is a pointer-driven
-        FLIP animation: the dragged page lifts and follows the cursor, a dashed
-        placeholder shows exactly where it will land, and every other page slides
-        smoothly into its new position (like dragging a Safari tab). Each tab also
-        has a FIXED thumbnail box, so rows are uniform and the slide looks clean.
-
-   Thumbnails are rendered with PDF.js (already bundled). Source page bytes come
-   from IndexedDB (the open document) or from the picked merge sources, so this
-   stays fully offline.
+   does not depend on css/styles.css for the grid, cards, or the "Add from
+   Library" picker. That fixes:
+     1. Tabs shrinking when many PDFs are merged in (grid uses a FIXED column
+        width — no 1fr — so tabs keep one size and the panel SCROLLS instead).
+     2. The reorder feeling unnatural (pointer-driven FLIP: the page lifts and
+        follows the cursor, a dashed placeholder shows where it lands, the rest
+        slide aside — like dragging a Safari tab).
+     3. The "Add from Library" filename rendering vertically (own .pm-pick-*
+        classes force horizontal, readable rows).
 
    DROP-IN: replace js/pageManager.js with this file. No other file needs editing.
-
    Exposed as window.App.PageManager.
    ========================================================================== */
 (function () {
@@ -50,17 +42,17 @@
   let drag = null;
 
   /* --------- Fixed geometry (kept in sync between JS render and CSS) -------- */
-  const CARD_W   = 160;   // fixed card / column width (px)
-  const THUMB_H  = 196;   // fixed thumbnail box height (px) -> uniform rows
+  const CARD_W   = 190;   // fixed card / column width (px)
+  const THUMB_H  = 214;   // fixed thumbnail box height (px) -> uniform rows
   const THUMB_PAD = 8;    // padding inside the thumb box (px)
   const DRAG_THRESHOLD = 5;
 
   /* ------------------------------ Injected CSS --------------------------- */
   const PM_STYLE = `
-    /* ---- Modal shell: a column that never grows past the viewport. ---- */
+    /* ---- Modal shell: a wide column that never grows past the viewport. ---- */
     .pm-modal {
-      width: min(1040px, calc(100vw - 40px)) !important;
-      max-height: calc(100vh - 60px) !important;
+      width: min(1480px, calc(100vw - 32px)) !important;
+      max-height: calc(100vh - 48px) !important;
       display: flex !important; flex-direction: column !important; gap: 12px !important;
     }
 
@@ -71,11 +63,11 @@
       grid-template-columns: repeat(auto-fill, ${CARD_W}px) !important;
       justify-content: center !important;
       align-content: start !important;
-      gap: 14px !important;
-      padding: 6px !important;
+      gap: 16px !important;
+      padding: 8px !important;
       flex: 1 1 auto !important;
       min-height: 140px !important;
-      overflow-y: auto !important;   /* the scrolling action you wanted */
+      overflow-y: auto !important;
       overflow-x: hidden !important;
     }
 
@@ -84,7 +76,7 @@
       width: ${CARD_W}px !important;
       box-sizing: border-box !important;
       cursor: grab;
-      touch-action: none;            /* let pointer events drive the drag */
+      touch-action: none;
       will-change: transform;
     }
     .pm-card .pm-thumb {
@@ -106,10 +98,11 @@
 
     /* ---- The page being dragged: floats under the cursor. ---- */
     .pm-card.pm-lifting {
-      box-shadow: 0 18px 42px rgba(0,0,0,.45);
-      border-color: var(--accent);
+      box-shadow: 0 22px 48px rgba(0,0,0,.5);
+      border-color: var(--accent) !important;
       cursor: grabbing;
       opacity: .98;
+      transform: scale(1.05);
     }
     /* ---- The gap that shows where the page will drop. ---- */
     .pm-card.pm-placeholder {
@@ -120,16 +113,43 @@
     }
     .pm-card.pm-placeholder > * { visibility: hidden; }
 
+    /* ============ Self-contained "Add from Library" picker ============ */
+    .pm-pick .modal { width: min(560px, calc(100vw - 40px)) !important; }
+    .pm-pick-list {
+      max-height: 360px !important; overflow-y: auto !important;
+      border: 1px solid var(--border) !important; border-radius: var(--r-sm) !important;
+      margin: 10px 0 !important; background: var(--panel-2) !important;
+    }
+    .pm-pick-row {
+      display: flex !important; align-items: center !important; gap: 12px !important;
+      width: 100% !important; box-sizing: border-box !important;
+      padding: 11px 14px !important; cursor: pointer !important;
+      border-bottom: 1px solid var(--border) !important; text-align: left !important;
+    }
+    .pm-pick-row:last-child { border-bottom: 0 !important; }
+    .pm-pick-row:hover { background: var(--hover) !important; }
+    .pm-pick-row input { flex: 0 0 auto !important; width: 16px !important; height: 16px !important; margin: 0 !important; }
+    .pm-pick-name {
+      flex: 1 1 auto !important; min-width: 0 !important;
+      font-size: 13px !important; line-height: 1.35 !important; color: var(--text) !important;
+      white-space: normal !important; word-break: normal !important; overflow-wrap: anywhere !important;
+      writing-mode: horizontal-tb !important;
+    }
+    .pm-pick-meta {
+      flex: 0 0 auto !important; white-space: nowrap !important;
+      font-family: var(--font-mono) !important; font-size: 11.5px !important; color: var(--text-meta) !important;
+    }
+
     @media (max-width: 720px) {
-      .pm-grid { grid-template-columns: repeat(auto-fill, 132px) !important; }
-      .pm-card { width: 132px !important; }
-      .pm-card .pm-thumb { height: 164px !important; min-height: 164px !important; }
+      .pm-grid { grid-template-columns: repeat(auto-fill, 150px) !important; }
+      .pm-card { width: 150px !important; }
+      .pm-card .pm-thumb { height: 176px !important; min-height: 176px !important; }
     }
   `;
   function injectStyle() {
     let s = document.getElementById("pm-style");
     if (!s) { s = document.createElement("style"); s.id = "pm-style"; document.head.appendChild(s); }
-    s.textContent = PM_STYLE;   // (re)write so updates take effect on reload
+    s.textContent = PM_STYLE;
   }
 
   async function open() {
@@ -146,7 +166,6 @@
 
   async function addSource(key, bytes, name) {
     const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    // Clone for PDF.js (it may detach the buffer) and keep a pristine copy for export.
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data), isEvalSupported: false }).promise;
     sources.set(key, { bytes: data, pdf, name });
     for (let i = 0; i < pdf.numPages; i++) {
@@ -157,7 +176,7 @@
   /* ------------------------------ Rendering ------------------------------ */
   function render() {
     if (!backdrop) buildShell();
-    injectStyle();                 // ensure styles are present even if shell was reused
+    injectStyle();
     backdrop.classList.add("show");
     drawGrid();
     updateCount();
@@ -221,7 +240,6 @@
           ic(entry.deleted ? "plus" : "trash") + '</button>' +
       '</div>';
 
-    // Render the thumbnail (async).
     const canvas = el.querySelector("canvas");
     renderThumb(entry, canvas);
 
@@ -236,9 +254,7 @@
       drawGrid(); updateCount();
     });
 
-    // Smooth pointer-driven reorder (replaces native drag-and-drop).
     el.addEventListener("pointerdown", (e) => onCardPointerDown(e, entry, el));
-
     return el;
   }
 
@@ -250,8 +266,7 @@
     try {
       const page = await src.pdf.getPage(entry.srcIndex + 1);
       const base = page.getViewport({ scale: 1, rotation: entry.rotation });
-      // Available area inside the thumb box (minus padding).
-      const maxW = CARD_W - 2 * THUMB_PAD - 4;     // a little inner breathing room
+      const maxW = CARD_W - 2 * THUMB_PAD - 4;
       const maxH = THUMB_H - 2 * THUMB_PAD;
       const scale = Math.min(maxW / base.width, maxH / base.height);
       const vp = page.getViewport({ scale, rotation: entry.rotation });
@@ -270,9 +285,9 @@
   /* --------------------- Smooth reorder (FLIP) --------------------------- */
   function onCardPointerDown(e, entry, el) {
     if (busy) return;
-    if (e.button != null && e.button !== 0) return;     // left button / primary touch only
-    if (entry.deleted) return;                          // removed pages aren't reorderable
-    if (e.target.closest(".pm-ic")) return;             // let rotate / delete buttons work
+    if (e.button != null && e.button !== 0) return;
+    if (entry.deleted) return;
+    if (e.target.closest(".pm-ic")) return;
     if (drag) return;
 
     const rect = el.getBoundingClientRect();
@@ -297,7 +312,6 @@
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       activateDrag(e);
     }
-    // Follow the cursor.
     drag.card.style.left = (e.clientX - drag.offsetX) + "px";
     drag.card.style.top  = (e.clientY - drag.offsetY) + "px";
     updateDropTarget(e);
@@ -307,7 +321,6 @@
   function activateDrag(e) {
     const el = drag.card;
 
-    // Placeholder occupies the page's grid cell so siblings keep their flow.
     const ph = document.createElement("div");
     ph.className = "pm-card pm-placeholder";
     ph.style.width = drag.w + "px";
@@ -315,7 +328,6 @@
     drag.placeholder = ph;
     gridEl.insertBefore(ph, el);
 
-    // Lift the page out of flow so it can float under the cursor.
     el.classList.add("pm-lifting");
     el.style.position = "fixed";
     el.style.zIndex = "1000";
@@ -332,8 +344,8 @@
   // Auto-scroll the grid when the dragged page nears the top/bottom edge.
   function autoScroll(e) {
     const r = gridEl.getBoundingClientRect();
-    const margin = 48, speed = 14;
-    if (e.clientY < r.top + margin)        gridEl.scrollTop -= speed;
+    const margin = 52, speed = 16;
+    if (e.clientY < r.top + margin)         gridEl.scrollTop -= speed;
     else if (e.clientY > r.bottom - margin) gridEl.scrollTop += speed;
   }
 
@@ -346,12 +358,10 @@
     const r = overCard.getBoundingClientRect();
     const midX = r.left + r.width / 2;
     const midY = r.top + r.height / 2;
-    // Reading-order test: past the vertical midline => after; same row & past
-    // the horizontal midline => after; otherwise before.
     const after = (e.clientY > midY) || (e.clientY > r.top && e.clientX > midX);
 
     const ref = after ? overCard.nextSibling : overCard;
-    if (ref === drag.placeholder) return;               // already in that slot
+    if (ref === drag.placeholder) return;
     if (after && overCard.nextSibling === drag.placeholder) return;
 
     flipReorder(() => gridEl.insertBefore(drag.placeholder, ref));
@@ -375,7 +385,6 @@
       if (!dx && !dy) return;
       c.style.transition = "none";
       c.style.transform = "translate(" + dx + "px," + dy + "px)";
-      // Next frame: release to the final position with a transition.
       requestAnimationFrame(() => {
         c.style.transition = "transform 200ms cubic-bezier(.2,.8,.2,1)";
         c.style.transform = "";
@@ -391,7 +400,7 @@
     el.removeEventListener("pointerup", onPointerUp);
     el.removeEventListener("pointercancel", onPointerUp);
 
-    if (!drag.active) { drag = null; return; }          // a click, not a drag
+    if (!drag.active) { drag = null; return; }
 
     const ph = drag.placeholder;
     const target = ph.getBoundingClientRect();
@@ -403,7 +412,6 @@
       settled = true;
       el.removeEventListener("transitionend", finish);
 
-      // Drop the page into the placeholder's slot and clear all drag styling.
       el.classList.remove("pm-lifting");
       ["position", "zIndex", "margin", "width", "height", "left", "top", "pointerEvents", "transition", "transform"]
         .forEach((p) => { el.style[p] = ""; });
@@ -415,15 +423,13 @@
       drag = null;
     };
 
-    // Animate the lifted page home, then snap it into the grid.
     el.style.transition = "left 180ms cubic-bezier(.2,.8,.2,1), top 180ms cubic-bezier(.2,.8,.2,1)";
     el.style.left = target.left + "px";
     el.style.top = target.top + "px";
     el.addEventListener("transitionend", finish);
-    setTimeout(finish, 240);                            // fallback if no transitionend fires
+    setTimeout(finish, 240);
   }
 
-  // Rebuild model order to match the on-screen page order.
   function commitOrderFromDom() {
     const order = {};
     let i = 0;
@@ -431,7 +437,6 @@
     model.sort((a, b) => (order[a.uid] ?? 0) - (order[b.uid] ?? 0));
   }
 
-  // Refresh the visible page numbers without re-rendering thumbnails.
   function renumber() {
     let n = 0;
     gridEl.querySelectorAll(".pm-card:not(.pm-placeholder)").forEach((c) => {
@@ -487,17 +492,25 @@
     input.click();
   }
 
-  // Small inline multi-select dialog for Library docs.
+  // Multi-select Library picker — self-contained .pm-pick-* classes keep the
+  // filename horizontal and readable (never one-letter-per-line).
   function pickFromList(docs) {
     return new Promise((resolve) => {
+      injectStyle();
       const bd = document.createElement("div");
-      bd.className = "modal-backdrop";
+      bd.className = "modal-backdrop pm-pick";
       bd.style.zIndex = 300;
       bd.innerHTML =
         '<div class="modal modal-form" role="dialog" aria-modal="true"><h3>Add pages from Library</h3>' +
         '<p class="modal-hint">Tick the PDFs whose pages you want to append.</p>' +
-        '<div class="fn-list">' +
-          docs.map((d) => '<label class="fn-row"><input type="checkbox" value="' + d.id + '"><span class="fn-text">' + esc(d.name) + '</span><span class="fn-meta">' + (d.pageCount || "?") + ' pp.</span></label>').join("") +
+        '<div class="pm-pick-list">' +
+          docs.map((d) =>
+            '<label class="pm-pick-row">' +
+              '<input type="checkbox" value="' + d.id + '">' +
+              '<span class="pm-pick-name">' + esc(d.name) + '</span>' +
+              '<span class="pm-pick-meta">' + (d.pageCount || "?") + ' pp.</span>' +
+            '</label>'
+          ).join("") +
         '</div>' +
         '<div class="row"><button class="btn has-label" data-act="cancel">Cancel</button>' +
         '<button class="btn has-label primary" data-act="ok">Add selected</button></div></div>';
@@ -523,7 +536,6 @@
     try {
       const { PDFDocument, degrees } = window.PDFLib;
       const out = await PDFDocument.create();
-      // Cache loaded pdf-lib source docs by key.
       const libDocs = new Map();
       for (const [key, src] of sources) {
         libDocs.set(key, await PDFDocument.load(src.bytes, { ignoreEncryption: true }));
@@ -558,7 +570,6 @@
     drag = null;
     backdrop.classList.remove("show");
     document.removeEventListener("keydown", onKey);
-    // Release PDF.js docs.
     sources.forEach((s) => { try { s.pdf.destroy(); } catch (e) {} });
     sources.clear(); model = [];
     setTimeout(() => { if (backdrop) { backdrop.remove(); backdrop = null; } }, 160);

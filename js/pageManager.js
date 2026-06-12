@@ -3,7 +3,7 @@
 
    Opens a modal showing every page of the current document as a thumbnail.
    The user can:
-     • Drag thumbnails to reorder pages.
+     • Drag thumbnails to reorder pages (smooth, Safari-tab-style live shuffle).
      • Toggle pages for deletion (removed from the output).
      • Rotate individual pages 90° (visual preview + baked into output).
      • Merge: append other PDFs (picked from the local Library or a file) whose
@@ -14,6 +14,15 @@
    Thumbnails are rendered with PDF.js (already bundled). Source page bytes come
    from IndexedDB (the open document) or from the picked merge sources, so this
    stays fully offline.
+
+   Reordering uses a pointer-driven FLIP animation: the dragged page is lifted
+   and follows the cursor, a dashed placeholder shows exactly where it will land,
+   and the other pages slide smoothly into their new positions. The grid is a
+   fixed-size wrapping grid that scrolls vertically, so thumbnails never shrink
+   no matter how many PDFs are merged in.
+
+   This module injects its own small stylesheet (see PM_STYLE), so no other file
+   needs to change.
 
    Exposed as window.App.PageManager.
    ========================================================================== */
@@ -28,6 +37,49 @@
   // srcKey -> { bytes, pdf(PDF.js doc), name }
   const sources = new Map();
   let backdrop = null, gridEl = null, busy = false;
+
+  // Active drag state (null when not dragging).
+  // { entry, card, placeholder, pointerId, offsetX, offsetY, startX, startY, active, w, h }
+  let drag = null;
+
+  const CARD_W = 168;   // fixed card width (keep in sync with PM_STYLE)
+  const DRAG_THRESHOLD = 5;
+
+  /* ------------------------------ Injected CSS --------------------------- */
+  const PM_STYLE = `
+    /* Fixed-size, wrapping, vertically scrolling grid — thumbnails never shrink. */
+    .pm-grid {
+      grid-template-columns: repeat(auto-fill, ${CARD_W}px) !important;
+      justify-content: center;
+      min-height: 0;
+    }
+    .pm-card { touch-action: none; }
+    /* The page being dragged: floats under the cursor. */
+    .pm-card.pm-lifting {
+      box-shadow: 0 18px 42px rgba(0,0,0,.45);
+      border-color: var(--accent);
+      cursor: grabbing;
+      opacity: .98;
+    }
+    /* The gap that shows where the page will drop. */
+    .pm-card.pm-placeholder {
+      background: var(--accent-soft);
+      border: 2px dashed var(--accent) !important;
+      box-shadow: none;
+      pointer-events: none;
+    }
+    .pm-card.pm-placeholder > * { visibility: hidden; }
+    @media (max-width: 720px) {
+      .pm-grid { grid-template-columns: repeat(auto-fill, 132px) !important; }
+    }
+  `;
+  function injectStyle() {
+    if (document.getElementById("pm-style")) return;
+    const s = document.createElement("style");
+    s.id = "pm-style";
+    s.textContent = PM_STYLE;
+    document.head.appendChild(s);
+  }
 
   async function open() {
     if (!App.PdfEdit || !App.PdfEdit.available()) { App.toast("PDF engine not available", "err"); return; }
@@ -60,6 +112,7 @@
   }
 
   function buildShell() {
+    injectStyle();
     backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop pm-backdrop";
     backdrop.innerHTML =
@@ -71,7 +124,7 @@
           '<button class="btn has-label" data-act="merge-lib"><span data-icon="plus"></span><span>Add from Library</span></button>' +
           '<button class="btn has-label" data-act="merge-file"><span data-icon="upload"></span><span>Add PDF file…</span></button>' +
         '</div>' +
-        '<p class="pm-hint">Drag to reorder. Use the buttons on each page to rotate or remove it. Removed pages are excluded from the exported PDF.</p>' +
+        '<p class="pm-hint">Drag a page to reorder — the others slide aside to show where it will land. Use the buttons on each page to rotate or remove it. Removed pages are excluded from the exported PDF.</p>' +
         '<div class="pm-grid" id="pm-grid"></div>' +
         '<div class="pm-foot">' +
           '<button class="btn has-label" data-act="reset">Reset</button>' +
@@ -103,7 +156,6 @@
   function card(entry, index) {
     const el = document.createElement("div");
     el.className = "pm-card" + (entry.deleted ? " deleted" : "");
-    el.draggable = !entry.deleted;
     el.dataset.uid = entry.uid;
     el.innerHTML =
       '<div class="pm-thumb"><canvas></canvas>' +
@@ -132,22 +184,8 @@
       drawGrid(); updateCount();
     });
 
-    // Drag to reorder
-    el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", entry.uid); e.dataTransfer.effectAllowed = "move"; el.classList.add("dragging"); });
-    el.addEventListener("dragend", () => el.classList.remove("dragging"));
-    el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("drop-target"); });
-    el.addEventListener("dragleave", () => el.classList.remove("drop-target"));
-    el.addEventListener("drop", (e) => {
-      e.preventDefault(); el.classList.remove("drop-target");
-      const fromUid = e.dataTransfer.getData("text/plain");
-      if (!fromUid || fromUid === entry.uid) return;
-      const from = model.findIndex((m) => m.uid === fromUid);
-      const to = model.findIndex((m) => m.uid === entry.uid);
-      if (from === -1 || to === -1) return;
-      const [moved] = model.splice(from, 1);
-      model.splice(to, 0, moved);
-      drawGrid(); updateCount();
-    });
+    // Smooth pointer-driven reorder (replaces native drag-and-drop).
+    el.addEventListener("pointerdown", (e) => onCardPointerDown(e, entry, el));
 
     return el;
   }
@@ -171,6 +209,173 @@
       const transform = dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null;
       await page.render({ canvasContext: ctx, viewport: vp, transform }).promise;
     } catch (e) { /* leave blank on failure */ }
+  }
+
+  /* --------------------- Smooth reorder (FLIP) --------------------------- */
+  function onCardPointerDown(e, entry, el) {
+    if (busy) return;
+    if (e.button != null && e.button !== 0) return;     // left button / primary touch only
+    if (entry.deleted) return;                          // removed pages aren't reorderable
+    if (e.target.closest(".pm-ic")) return;             // let rotate / delete buttons work
+    if (drag) return;
+
+    const rect = el.getBoundingClientRect();
+    drag = {
+      entry, card: el, pointerId: e.pointerId,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      startX: e.clientX, startY: e.clientY,
+      w: rect.width, h: rect.height,
+      active: false, placeholder: null
+    };
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", onPointerUp);
+    el.addEventListener("pointercancel", onPointerUp);
+  }
+
+  function onPointerMove(e) {
+    if (!drag) return;
+    if (!drag.active) {
+      const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      activateDrag(e);
+    }
+    // Follow the cursor.
+    drag.card.style.left = (e.clientX - drag.offsetX) + "px";
+    drag.card.style.top  = (e.clientY - drag.offsetY) + "px";
+    updateDropTarget(e);
+  }
+
+  function activateDrag(e) {
+    const el = drag.card;
+
+    // Placeholder occupies the page's grid cell so siblings keep their flow.
+    const ph = document.createElement("div");
+    ph.className = "pm-card pm-placeholder";
+    ph.style.width = drag.w + "px";
+    ph.style.height = drag.h + "px";
+    drag.placeholder = ph;
+    gridEl.insertBefore(ph, el);
+
+    // Lift the page out of flow so it can float under the cursor.
+    el.classList.add("pm-lifting");
+    el.style.position = "fixed";
+    el.style.zIndex = "1000";
+    el.style.margin = "0";
+    el.style.width = drag.w + "px";
+    el.style.height = drag.h + "px";
+    el.style.left = (e.clientX - drag.offsetX) + "px";
+    el.style.top  = (e.clientY - drag.offsetY) + "px";
+    el.style.pointerEvents = "none";
+    el.style.transition = "none";
+    drag.active = true;
+  }
+
+  function updateDropTarget(e) {
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const overCard = under && under.closest(".pm-card");
+    if (!overCard || overCard === drag.card || overCard === drag.placeholder) return;
+    if (!gridEl.contains(overCard)) return;
+
+    const r = overCard.getBoundingClientRect();
+    const midX = r.left + r.width / 2;
+    const midY = r.top + r.height / 2;
+    // Reading-order test: past the vertical midline => after; same row & past
+    // the horizontal midline => after; otherwise before.
+    const after = (e.clientY > midY) || (e.clientY > r.top && e.clientX > midX);
+
+    const ref = after ? overCard.nextSibling : overCard;
+    if (ref === drag.placeholder) return;               // already in that slot
+    if (after && overCard.nextSibling === drag.placeholder) return;
+
+    flipReorder(() => gridEl.insertBefore(drag.placeholder, ref));
+  }
+
+  // FLIP: record positions, mutate the DOM, then animate each card from where
+  // it was to where it now is — the smooth "slide aside" effect.
+  function flipReorder(mutate) {
+    const items = Array.from(gridEl.children).filter((c) => c !== drag.card);
+    const first = new Map();
+    items.forEach((c) => first.set(c, c.getBoundingClientRect()));
+
+    mutate();
+
+    items.forEach((c) => {
+      const f = first.get(c);
+      if (!f) return;
+      const last = c.getBoundingClientRect();
+      const dx = f.left - last.left;
+      const dy = f.top - last.top;
+      if (!dx && !dy) return;
+      c.style.transition = "none";
+      c.style.transform = "translate(" + dx + "px," + dy + "px)";
+      // Next frame: release to the final position with a transition.
+      requestAnimationFrame(() => {
+        c.style.transition = "transform 200ms cubic-bezier(.2,.8,.2,1)";
+        c.style.transform = "";
+      });
+    });
+  }
+
+  function onPointerUp() {
+    if (!drag) return;
+    const el = drag.card;
+    try { el.releasePointerCapture(drag.pointerId); } catch (_) {}
+    el.removeEventListener("pointermove", onPointerMove);
+    el.removeEventListener("pointerup", onPointerUp);
+    el.removeEventListener("pointercancel", onPointerUp);
+
+    if (!drag.active) { drag = null; return; }          // a click, not a drag
+
+    const ph = drag.placeholder;
+    const target = ph.getBoundingClientRect();
+    const cur = el.getBoundingClientRect();
+    const dx = target.left - cur.left;
+    const dy = target.top - cur.top;
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      el.removeEventListener("transitionend", finish);
+
+      // Drop the page into the placeholder's slot and clear all drag styling.
+      el.classList.remove("pm-lifting");
+      ["position", "zIndex", "margin", "width", "height", "left", "top", "pointerEvents", "transition", "transform"]
+        .forEach((p) => { el.style[p] = ""; });
+      gridEl.insertBefore(el, ph);
+      ph.remove();
+
+      commitOrderFromDom();
+      renumber();
+      drag = null;
+    };
+
+    // Animate the lifted page home, then snap it into the grid.
+    el.style.transition = "left 180ms cubic-bezier(.2,.8,.2,1), top 180ms cubic-bezier(.2,.8,.2,1)";
+    el.style.left = target.left + "px";
+    el.style.top = target.top + "px";
+    el.addEventListener("transitionend", finish);
+    setTimeout(finish, 240);                            // fallback if no transitionend fires
+  }
+
+  // Rebuild model order to match the on-screen page order.
+  function commitOrderFromDom() {
+    const order = {};
+    let i = 0;
+    gridEl.querySelectorAll(".pm-card:not(.pm-placeholder)").forEach((c) => { order[c.dataset.uid] = i++; });
+    model.sort((a, b) => (order[a.uid] ?? 0) - (order[b.uid] ?? 0));
+  }
+
+  // Refresh the visible page numbers without re-rendering thumbnails.
+  function renumber() {
+    let n = 0;
+    gridEl.querySelectorAll(".pm-card:not(.pm-placeholder)").forEach((c) => {
+      n += 1;
+      const num = c.querySelector(".pm-num");
+      if (num) num.textContent = n;
+    });
   }
 
   function updateCount() {
@@ -287,6 +492,7 @@
   }
   function close() {
     if (!backdrop) return;
+    drag = null;
     backdrop.classList.remove("show");
     document.removeEventListener("keydown", onKey);
     // Release PDF.js docs.
